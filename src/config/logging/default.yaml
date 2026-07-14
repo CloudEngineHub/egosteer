@@ -12,7 +12,7 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: eval/l1_loss
+    monitor_key: eval_l1_loss
     mode: min
     k: 1
     format_str: update_step={update_step:04d}
