@@ -90,6 +90,8 @@ dataset:
     # Pre-shuffle Bernoulli keep rate (train only). Lower = more shard diversity,
     # higher IO. 1.0 disables. Ref: DreamZero shard_sampling_rate.
     keep_ratio: 0.2
+    # Val only: score every N-th window. 1 = full val set.
+    val_stride: 1
     sanity_checks: ${data.sanity_checks}
     dagger_quality_filter: ${data.dagger_quality_filter}
   # VLM branch disabled for the example (VLA-only training).
