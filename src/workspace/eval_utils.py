@@ -7,6 +7,7 @@ Extracted from train_egosteer_workspace.py for modularity.
 import gc
 import os
 import shutil
+import time
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -365,6 +366,7 @@ def evaluation(workspace, rank, device, dataloader, step_log):
     if rank == 0:
         print(f"Evaluation step {workspace.update_step} started")
     dist.barrier()
+    eval_start = time.perf_counter()
 
     model = _unwrap_model(workspace)
     wrist_dim = model.shape_meta["obs"]["state"]["wrist"]["shape"][0]
@@ -384,8 +386,12 @@ def evaluation(workspace, rank, device, dataloader, step_log):
         min_loss_sample = {'loss': float('inf'), 'attn_weights': None, 'inputs': None, 'metadata': None}
         max_loss_sample = {'loss': float('-inf'), 'attn_weights': None, 'inputs': None, 'metadata': None}
         save_eval_attn_weights = bool(workspace.cfg.training.save_eval_attn_weights)
+        num_eval_batches = 0
+        num_eval_samples = 0
 
         for batch_idx, batch in enumerate(dataloader):
+            num_eval_batches += 1
+            num_eval_samples += int(batch["input_ids"].shape[0])
             # cast_forward_inputs=True on the FSDP MixedPrecisionPolicy casts
             # floating-point batch tensors at model.forward entry, so no
             # manual preprocess is needed here.
@@ -434,6 +440,19 @@ def evaluation(workspace, rank, device, dataloader, step_log):
             eval_thresholds, device, step_log,
         )
 
+        # After the all-reduce, so this includes the straggler wait.
+        eval_duration = time.perf_counter() - eval_start
+        sample_count = torch.tensor(num_eval_samples, device=device)
+        dist.all_reduce(sample_count, op=dist.ReduceOp.SUM)
+        total_samples = int(sample_count.item())
+        # Per-sample, so it stays comparable across batch sizes.
+        sec_per_sample = eval_duration / max(num_eval_samples, 1)
+        step_log['eval/duration_sec'] = eval_duration
+        step_log['eval/num_batches'] = num_eval_batches
+        step_log['eval/num_samples'] = total_samples
+        step_log['eval/sec_per_sample'] = sec_per_sample
+        step_log['eval/samples_per_sec'] = total_samples / max(eval_duration, 1e-9)
+
         # Print summary
         log_msg = f"Eval | Epoch {workspace.epoch} | L1 Loss: {avg_l1.item():.3f} | "
         log_msg += " | ".join([f"{k}: {v.item():.3f}" for k, v in avg_l1_parts.items()])
@@ -442,6 +461,12 @@ def evaluation(workspace, rank, device, dataloader, step_log):
             f"acc thres {threshold}: {avg_accuracy[i].item():.3f}"
             for i, threshold in enumerate(eval_thresholds)
         ])
+        log_msg += (
+            f" | took {eval_duration:.1f}s "
+            f"({total_samples} samples, "
+            f"{sec_per_sample * 1000:.0f}ms/sample per rank, "
+            f"{total_samples / max(eval_duration, 1e-9):.1f} samples/s)"
+        )
         if rank == 0:
             print(log_msg)
 
