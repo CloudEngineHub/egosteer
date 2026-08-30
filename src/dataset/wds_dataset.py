@@ -457,6 +457,13 @@ def no_split(src):
     yield from src
 
 
+def take_every_nth(src, stride):
+    """Keep every ``stride``-th window. Val only; deterministic by index."""
+    for index, sample in enumerate(src):
+        if index % stride == 0:
+            yield sample
+
+
 def resolve_shuffle_initial(shuffle_buffer: int | None, shuffle_initial: int | None) -> int:
     """Cap WebDataset shuffle warmup so low keep_ratio does not stall startup."""
     if not shuffle_buffer or shuffle_buffer <= 0:
@@ -497,6 +504,7 @@ def build_wds_pipeline(shard_urls, config=None,
                        use_sliding_window=True,
                        include_post_stages=True,
                        keep_ratio: float = 1.0,
+                       val_stride: int = 1,
                        *, checker):
     """Build a WebDataset pipeline for a single dataset.
 
@@ -526,11 +534,13 @@ def build_wds_pipeline(shard_urls, config=None,
         keep_ratio: Bernoulli pre-shuffle keep probability (train only).
             Lower = more shard diversity, higher IO.
             Ref: DreamZero shard_sampling_rate.
+        val_stride: keep every N-th window (val only).
         checker: required ``DataChecker``. Every per-sample stage is
             wrapped via ``attach_sample_ctx`` so DataSkipError is logged
             and other failures carry sample locator info.
     """
     assert 0.0 < keep_ratio <= 1.0, f"keep_ratio must be in (0, 1], got {keep_ratio}"
+    assert val_stride >= 1, f"val_stride must be >= 1, got {val_stride}"
 
     if config is None:
         config = WindowConfig()
@@ -569,6 +579,8 @@ def build_wds_pipeline(shard_urls, config=None,
     if is_train and keep_ratio < 1.0:
         keep_threshold = keep_ratio
         stages.append(wds.select(lambda _s: random.random() < keep_threshold))
+    elif not is_train and val_stride > 1:
+        stages.append(lambda src: take_every_nth(src, val_stride))
 
     if include_post_stages:
         # Shuffle holds lightweight window descriptors (frame refs), not
@@ -596,6 +608,7 @@ def build_blended_dataset(datasets_config, config=None,
                           mode='train',
                           use_sliding_window=True,
                           keep_ratio: float = 1.0,
+                          val_stride: int = 1,
                           *, checker):
     """Build a blended dataset from multiple WebDataset sources.
 
@@ -615,6 +628,7 @@ def build_blended_dataset(datasets_config, config=None,
         use_sliding_window: VLA=True, VLM=False.
         keep_ratio: forwarded per-subset; RandomMix weights are invariant
             because every subset is thinned by the same factor.
+        val_stride: forwarded per-subset.
         checker: required ``DataChecker``; forwarded to per-subset
             pipelines and used to wrap post-mix stages so failures carry
             sample locator info.
@@ -642,6 +656,7 @@ def build_blended_dataset(datasets_config, config=None,
             use_sliding_window=use_sliding_window,
             include_post_stages=not is_train,
             keep_ratio=keep_ratio,
+            val_stride=val_stride,
             checker=checker,
         )
         subsets.append(pipe)

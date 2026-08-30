@@ -86,6 +86,7 @@ class VLAWdsDataset(torch.utils.data.IterableDataset):
         load_chest: bool = False,
         view_dropout: ViewDropoutConfig = ViewDropoutConfig(),
         keep_ratio: float = 1.0,
+        val_stride: int = 1,
         sanity_checks: Optional[Dict] = None,
         dagger_quality_filter: bool = True,
     ):
@@ -113,6 +114,8 @@ class VLAWdsDataset(torch.utils.data.IterableDataset):
         self.view_dropout = view_dropout
         assert 0.0 < keep_ratio <= 1.0, f"keep_ratio must be in (0, 1], got {keep_ratio}"
         self.keep_ratio = float(keep_ratio)
+        assert val_stride >= 1, f"val_stride must be >= 1, got {val_stride}"
+        self.val_stride = int(val_stride)
         self.sanity_checks = dict(sanity_checks or {})
         self.dagger_quality_filter = bool(dagger_quality_filter)
         # (H, W) tuple or None. Resize all RGB frames to this resolution
@@ -535,6 +538,7 @@ class VLAWdsDataset(torch.utils.data.IterableDataset):
             shuffle_initial=self.shuffle_initial,
             mode=self.mode,
             keep_ratio=self.keep_ratio,
+            val_stride=self.val_stride,
             checker=self.checker,
         )
         return strip_key(pipeline)
@@ -562,6 +566,7 @@ class VLAWdsDataset(torch.utils.data.IterableDataset):
             load_depth=self.load_depth,
             load_chest=self.load_chest,
             keep_ratio=1.0,
+            val_stride=self.val_stride,
             sanity_checks=self.sanity_checks,
             dagger_quality_filter=self.dagger_quality_filter,
         )
