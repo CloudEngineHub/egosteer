@@ -174,6 +174,7 @@ def write_shard(job):
                     "episode_index": ep["episode_index"], "dataset_name": ep["tasks"][0], "cameras": ["head", "chest"]}
             meta_json = json.dumps(meta, ensure_ascii=False).encode("utf-8")
             frames = zip(decode_video(root, info, ep, HEAD), decode_video(root, info, ep, CHEST))
+            decoded = 0
             for t, (head, chest) in enumerate(frames):
                 key = f"episode_{ep['episode_index']:06d}_frame_{t:06d}"
                 add(key + ".image.jpg", jpeg_bytes(head, quality))
@@ -181,8 +182,9 @@ def write_shard(job):
                 add(key + ".lowdim.npy", npy_bytes(to_lowdim(state[t], action[t], ep["calibration/head_intrinsics"],
                                                               ep["calibration/chest_intrinsics"], ep["calibration/chest_world2cam"])))
                 add(key + ".meta.json", meta_json)
-            assert t + 1 == ep["length"], f"episode {ep['episode_index']}: decoded {t + 1} frames, expected {ep['length']}"
-            n_frames += ep["length"]
+                decoded += 1
+            assert decoded == ep["length"], f"episode {ep['episode_index']}: decoded {decoded} frames, expected {ep['length']}"
+            n_frames += decoded
     tmp_path.rename(out_path)
     return out_path.name, len(episodes), n_frames
 
@@ -207,8 +209,9 @@ def main():
     for split, shards in plan.items():
         (args.out / split).mkdir(parents=True, exist_ok=True)
         index = {f"shard-{i:06d}.tar": [ep["episode_index"] for ep in eps] for i, eps in enumerate(shards)}
-        json.dump({"seed": args.seed, "frames_per_shard": args.frames_per_shard, "shards": index},
-                  open(args.out / split / "index.json", "w"), indent=1)
+        index_path = args.out / split / "index.json"          # shard -> episodes, for reproducibility
+        if not index_path.exists():
+            json.dump({"seed": args.seed, "frames_per_shard": args.frames_per_shard, "shards": index}, open(index_path, "w"), indent=1)
         for i, (name, eps) in enumerate(zip(index, shards)):
             if i % n_parts == part and not (args.out / split / name).exists():
                 jobs.append((str(args.root), info, str(args.out / split / name), eps, args.jpeg_quality))

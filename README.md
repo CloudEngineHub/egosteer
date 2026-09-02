@@ -144,7 +144,9 @@ To adapt EgoSteer to your own data or embodiment, fine-tune from the released
 
 **1. Prepare your data and normalizer.** Convert your data to the EgoSteer
 WebDataset format and compute a normalizer over it. See [`data.md`](data/data.md)
-for the shard/sample layout, coordinate conventions, and conversion guide. Then
+for the shard/sample layout, coordinate conventions, and conversion guide; the
+released EgoSteer LeRobot dataset converts with
+[`scripts/lerobot_to_wds.py`](scripts/lerobot_to_wds.py). Then
 point the shard paths in [vla_wds.yaml](src/config/dataset_paths/vla_wds.yaml) to
 your data, and compute the normalizer:
 
