@@ -28,6 +28,7 @@ Requires numpy, pyarrow, av (PyAV) and Pillow.
 import argparse
 import io
 import json
+import os
 import tarfile
 import time
 from multiprocessing import Pool
@@ -160,7 +161,7 @@ def plan_shards(episodes, frames_per_shard, seed):
 def write_shard(job):
     root, info, out_path, episodes, quality = job
     root, out_path = Path(root), Path(out_path)
-    tmp_path = out_path.with_suffix(".tar.tmp")
+    tmp_path = out_path.with_name(f"{out_path.name}.{os.getpid()}.tmp")   # unique per process, renamed when complete
     n_frames = 0
     with tarfile.open(tmp_path, "w") as tar:
         def add(name, data):
