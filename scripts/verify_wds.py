@@ -23,7 +23,14 @@ MEMBERS = ["image.jpg", "chest_image.jpg", "lowdim.npy", "meta.json"]
 
 
 def check_shard(path):
-    """Return {episode_index: n_frames} for one shard, raising on any contract violation."""
+    """Return (split, name, {episode_index: n_frames}, error) for one shard; error is None if it passes."""
+    try:
+        return path.parent.name, path.name, _check_shard(path), None
+    except Exception as e:                       # AssertionError, tarfile.ReadError, ...
+        return path.parent.name, path.name, {}, f"{type(e).__name__}: {e}"
+
+
+def _check_shard(path):
     episodes, current, expected_frame, suffixes = {}, None, 0, []
     with tarfile.open(path) as tar:
         for member in tar:
@@ -49,7 +56,7 @@ def check_shard(path):
             expected_frame += 1
             episodes[episode] = expected_frame
     assert not suffixes, f"{path}: trailing members {suffixes}"
-    return path.parent.name, path.name, episodes
+    return episodes
 
 
 def main():
@@ -62,12 +69,21 @@ def main():
     shards = sorted(args.wds.glob("*/shard-*.tar"))
     seen = {}                                   # episode -> (split, shard)
     per_split = {}
+    bad = []
     with Pool(args.workers) as pool:
-        for split, name, episodes in pool.imap_unordered(check_shard, shards):
+        for split, name, episodes, error in pool.imap_unordered(check_shard, shards):
+            if error:
+                bad.append(f"{split}/{name}")
+                print(f"BAD {error}", flush=True)
+                continue
             for ep, n in episodes.items():
-                assert ep not in seen, f"episode {ep} in both {seen[ep]} and {split}/{name}"
+                if ep in seen:
+                    bad.append(f"{split}/{name}")
+                    print(f"BAD episode {ep} in both {seen[ep]} and {split}/{name}", flush=True)
                 seen[ep] = (split, name)
                 per_split.setdefault(split, {})[ep] = n
+    if bad:
+        raise SystemExit(f"{len(bad)} bad shard(s): " + " ".join(sorted(bad)))
     for split, eps in sorted(per_split.items()):
         print(f"{split}: {len([s for s in shards if s.parent.name == split])} shards, {len(eps)} episodes, {sum(eps.values())} frames")
 
