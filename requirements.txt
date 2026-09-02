@@ -23,3 +23,6 @@ scikit-learn
 webdataset
 dill
 psutil
+# scripts/lerobot_to_wds.py (LeRobot -> webdataset conversion)
+av
+pyarrow
