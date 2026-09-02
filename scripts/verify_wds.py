@@ -4,8 +4,10 @@
 For every shard: each frame has exactly image.jpg, chest_image.jpg, lowdim.npy,
 meta.json in that order; frames of an episode are contiguous and numbered
 0..N-1; meta fields are valid; lowdim is float32[136]. Across shards: no
-episode appears in more than one shard. With --root, episode count, frame
-count and per-episode lengths are compared against the LeRobot dataset.
+episode appears in more than one shard, and each shard holds exactly the
+episodes recorded for it in <split>/index.json (written by lerobot_to_wds.py).
+With --root, every episode of the LeRobot dataset must be present with the
+same number of frames.
 
 Usage: python scripts/verify_wds.py --wds <wds dir> [--root <lerobot dataset>] [--workers 32]
 """
@@ -67,6 +69,9 @@ def main():
     args = ap.parse_args()
 
     shards = sorted(args.wds.glob("*/shard-*.tar"))
+    index = {}                                  # (split, shard) -> episodes planned for it
+    for p in args.wds.glob("*/index.json"):
+        index.update({(p.parent.name, name): set(eps) for name, eps in json.load(open(p))["shards"].items()})
     seen = {}                                   # episode -> (split, shard)
     per_split = {}
     bad = []
@@ -75,6 +80,10 @@ def main():
             if error:
                 bad.append(f"{split}/{name}")
                 print(f"BAD {error}", flush=True)
+                continue
+            if (split, name) in index and set(episodes) != index[(split, name)]:
+                bad.append(f"{split}/{name}")
+                print(f"BAD {split}/{name}: holds episodes {sorted(episodes)}, index.json says {sorted(index[(split, name)])}", flush=True)
                 continue
             for ep, n in episodes.items():
                 if ep in seen:
@@ -91,10 +100,11 @@ def main():
         rows = []
         for p in sorted((args.root / "meta" / "episodes").rglob("*.parquet")):
             rows += pq.read_table(p, columns=["episode_index", "length", "split"]).to_pylist()
-        for r in rows:
-            got = per_split.get(r["split"], {}).get(r["episode_index"])
-            assert got == r["length"], f"episode {r['episode_index']} ({r['split']}): wds {got} frames, lerobot {r['length']}"
-        assert len(rows) == len(seen), f"{len(rows)} episodes in lerobot, {len(seen)} in wds"
+        mismatch = [r for r in rows if per_split.get(r["split"], {}).get(r["episode_index"]) != r["length"]]
+        for r in mismatch:
+            print(f"BAD episode {r['episode_index']} ({r['split']}): wds {per_split.get(r['split'], {}).get(r['episode_index'])} frames, lerobot {r['length']}")
+        if mismatch or len(rows) != len(seen):
+            raise SystemExit(f"{len(mismatch)} episode(s) missing or wrong length; {len(rows)} episodes in lerobot, {len(seen)} in wds")
         print(f"matches {args.root}: {len(rows)} episodes, {sum(r['length'] for r in rows)} frames")
     print("ok")
 
