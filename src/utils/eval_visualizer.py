@@ -304,8 +304,6 @@ def project_3d_to_2d(points_3d, fx, fy, cx, cy):
 
     Returns:
         np.ndarray [N, 2] pixel coordinates (u, v).
-
-    # Source: visualize.py#L499-L511
     """
     z = np.clip(points_3d[:, 2], 1e-6, None)
     u = fx * (points_3d[:, 0] / z) + cx
