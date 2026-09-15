@@ -196,24 +196,28 @@ def main():
     ap.add_argument("--out", required=True, type=Path, help="output directory; gets train/ and val/ subdirectories")
     ap.add_argument("--frames-per-shard", type=int, default=1000, help="target frames per shard (episodes are never split)")
     ap.add_argument("--seed", type=int, default=0, help="seed for the episode shuffle")
-    ap.add_argument("--workers", type=int, default=32)
+    ap.add_argument("--workers", type=int, default=os.cpu_count())
     ap.add_argument("--jpeg-quality", type=int, default=95)
     ap.add_argument("--part", default="0/1", help="k/N: only write shards with index %% N == k (for multi-machine runs)")
     args = ap.parse_args()
     part, n_parts = map(int, args.part.split("/"))
+    assert 0 <= part < n_parts, f"--part {args.part}: expected k/N with 0 <= k < N"
 
-    info = json.load(open(args.root / "meta" / "info.json"))
+    info = json.loads((args.root / "meta" / "info.json").read_text())
     episodes = load_episodes(args.root)
     plan = plan_shards(episodes, args.frames_per_shard, args.seed)
 
     jobs = []
     for split, shards in plan.items():
         (args.out / split).mkdir(parents=True, exist_ok=True)
-        index = {f"shard-{i:06d}.tar": [ep["episode_index"] for ep in eps] for i, eps in enumerate(shards)}
+        index = {"seed": args.seed, "frames_per_shard": args.frames_per_shard,
+                 "shards": {f"shard-{i:06d}.tar": [ep["episode_index"] for ep in eps] for i, eps in enumerate(shards)}}
         index_path = args.out / split / "index.json"          # shard -> episodes, for reproducibility
-        if not index_path.exists():
-            json.dump({"seed": args.seed, "frames_per_shard": args.frames_per_shard, "shards": index}, open(index_path, "w"), indent=1)
-        for i, (name, eps) in enumerate(zip(index, shards)):
+        if index_path.exists():                               # resuming: the existing shards must come from the same plan
+            assert json.loads(index_path.read_text()) == index, f"{index_path} was written with different arguments; use a new --out"
+        else:
+            index_path.write_text(json.dumps(index, indent=1))
+        for i, (name, eps) in enumerate(zip(index["shards"], shards)):
             if i % n_parts == part and not (args.out / split / name).exists():
                 jobs.append((str(args.root), info, str(args.out / split / name), eps, args.jpeg_quality))
     total = sum(len(s) for s in plan.values())

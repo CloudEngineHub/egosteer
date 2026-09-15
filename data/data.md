@@ -116,8 +116,10 @@ python scripts/verify_wds.py    --wds  /path/EgoSteer-RealWorld.wds --root /path
 - Splits follow the dataset's `split` column: `<out>/train/` and `<out>/val/`.
 - Each frame gets `image.jpg`, `chest_image.jpg`, `lowdim.npy` (136 dims, head + chest) and `meta.json`
   with all of the episode's instructions; depth is not exported.
-- Re-running skips shards that already exist. To spread one conversion over several machines that share
-  the output directory, give each machine a different `--part k/N`.
+- Re-running skips shards that already exist, so an interrupted run resumes where it stopped (the script refuses
+  to resume into an output directory that was written with different arguments). To spread one conversion over
+  several machines that share the output directory, give each machine a different `--part k/N`. `--workers`
+  defaults to the machine's CPU count.
 - `verify_wds.py` checks the contract above (member order, per-episode contiguity, no episode in two
   shards, `instruction_num`, lowdim shape) and, with `--root`, frame counts against the LeRobot dataset.
 
