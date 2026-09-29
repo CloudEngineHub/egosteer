@@ -1,9 +1,9 @@
-<h1 align="center">EgoSteer: A Full-Stack System Towards Steerable Dexterous Manipulation from Egocentric Videos</h1>
+<h1 align="center">EgoSteer: An Open-Source Full-Stack System Towards Steerable Dexterous Manipulation from Egocentric Videos</h1>
 
 <p align="center">
   <a href="https://arxiv.org/abs/2607.09701"><img src="https://img.shields.io/badge/Paper-arXiv-b31b1b?style=for-the-badge&logo=arxiv&logoColor=white" alt="Paper"></a>
   <a href="https://egosteer.github.io/"><img src="https://img.shields.io/badge/Project-Page-1a73e8?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Project Page"></a>
-  <a href="https://huggingface.co/datasets/egosteer"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Data-Hugging%20Face-FFD21E?style=for-the-badge&labelColor=555555" alt="Data"></a>
+  <a href="https://huggingface.co/EgoSteer/datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Data-Hugging%20Face-FFD21E?style=for-the-badge&labelColor=555555" alt="Data"></a>
   <a href="https://huggingface.co/EgoSteer/models"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model-Hugging%20Face-FFD21E?style=for-the-badge&labelColor=555555" alt="Model"></a>
 </p>
 
@@ -17,7 +17,7 @@
   <img src="assets/Teaser.png" width="100%">
 </p>
 
-Our **full-stack system** integrates [EgoSmith](https://github.com/egosteer/egosmith), [Robot Stack](https://github.com/egosteer/robot-stack), and [EgoSteer](https://github.com/egosteer/egosteer) (this repo) to learn from large-scale egocentric human videos and facilitate data-efficient real-robot post-training, enabling steerable dexterous manipulation across over 40 tasks alongside few-shot adaptation to complex, long-horizon tasks.
+Our **full-stack system** integrates [EgoSmith](https://github.com/egosteer/egosmith), [Robot Stack](https://github.com/egosteer/robot-stack), and [EgoSteer](https://github.com/egosteer/egosteer) (this repo). EgoSmith curates 9,606 hours of egocentric data from 12 sources; 187 hours of robot demonstrations are used for post-training. EgoSteer follows free-form instructions across 45 evaluated tasks with 75% average success and achieves 79% average progress on five few-shot long-horizon tasks.
 
 This repository contains **EgoSteer**, a **world-model-enhanced** Vision-Language-Action (VLA) policy built on a Qwen3-VL backbone with a flow-matching action expert. It provides a complete pipeline for training, evaluating, and serving the policy, runs on the RealMan robot out of the box, and easily extends to other embodiments.
 
@@ -84,7 +84,7 @@ We also release the trained EgoSteer models below. Use **EgoSteer-3B-Base** as t
 
 | Model Type | Model Name | Parameters | Description |
 |------------|------------|------------|-------------|
-| **EgoSteer Pretrained** | [EgoSteer-3B-Base](https://huggingface.co/EgoSteer/EgoSteer-3B-Base) | 3B | Base EgoSteer model trained on 9.6k hours of egocentric human videos, ready for fine-tuning |
+| **EgoSteer Pretrained** | [EgoSteer-3B-Base](https://huggingface.co/EgoSteer/EgoSteer-3B-Base) | 3B | Base EgoSteer model trained on 9,606 hours of egocentric human videos, ready for fine-tuning |
 | **EgoSteer Generalist** | [EgoSteer-3B-RealMan](https://huggingface.co/EgoSteer/EgoSteer-3B-RealMan) | 3B | A generalist model post-trained on [real-world data collected on the RealMan robot](https://huggingface.co/datasets/EgoSteer/EgoSteer-RealWorld) |
 
 ## Quick Start
@@ -439,7 +439,7 @@ If you find our paper or this repository helpful in your research or project, pl
 
 ```tex
 @misc{zhong2026egosteerfullstacksteerabledexterous,
-      title={EgoSteer: A Full-Stack System Towards Steerable Dexterous Manipulation from Egocentric Videos}, 
+      title={EgoSteer: An Open-Source Full-Stack System Towards Steerable Dexterous Manipulation from Egocentric Videos},
       author={Yifan Zhong and Zhang Chen and Tianrui Guan and Fanlian Zeng and Yuyao Ye and Tianjia He and Ka Nam Lui and Jiayi Li and Tingrui Zhang and Ruilin Yan and Xinhao Ji and Guangyu Zhao and Wenjie Lou and Jiayuan Zhang and Yuanpei Chen and Yaodong Yang},
       year={2026},
       eprint={2607.09701},
