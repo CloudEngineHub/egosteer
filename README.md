@@ -44,7 +44,7 @@ cd egosteer
 ### Full Training Environment
 
 ```bash
-bash scripts/install.sh   # In the "Add NVIDIA repository" step, pick the entry matching your OS.
+bash scripts/install.sh
 ```
 
 The installation script sets up system dependencies, a Python 3.10 conda environment, PyTorch with CUDA 12.8, FlashAttention, and other Python packages required for training and inference.

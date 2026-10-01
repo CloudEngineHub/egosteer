@@ -5,6 +5,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+source /etc/os-release
+if [[ "${ID:-}" != "ubuntu" || "$(uname -m)" != "x86_64" ]]; then
+    echo "This installer requires Ubuntu on x86_64." >&2
+    exit 1
+fi
+NVIDIA_DISTRO="ubuntu${VERSION_ID//./}"
+
 # Install system dependencies
 echo "Installing system dependencies..."
 sudo apt-get update
@@ -14,12 +21,11 @@ sudo apt-get install -y python3-dev python3-pip python3-venv libhdf5-dev pkg-con
 
 # Add NVIDIA repository and install NCCL
 echo "Adding NVIDIA repository and installing NCCL..."
-# make sure the right version of the system is used
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
-sudo dpkg -i cuda-keyring_1.0-1_all.deb
+wget https://developer.download.nvidia.com/compute/cuda/repos/${NVIDIA_DISTRO}/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
-sudo apt-get install -y libnccl2 libnccl-dev
-rm -f cuda-keyring_1.0-1_all.deb
+sudo apt-get install -y --no-upgrade libnccl2 libnccl-dev
+rm -f cuda-keyring_1.1-1_all.deb
 
 # Install pdsh for the multi-node launcher; numactl for per-rank NUMA binding
 # (see scripts/numa_bind_wrapper.sh).
