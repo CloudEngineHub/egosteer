@@ -40,24 +40,27 @@ Head-only is **116** dims; head + chest is **136**.
 |---|---|---|---|
 | `0:18` | `wrist_state` | 18 | `[left_trans(3), right_trans(3), left_rot6d(6), right_rot6d(6)]`, **world frame**. `rot6d` = the first two columns of the 3×3 wrist→world rotation matrix. |
 | `18:48` | `hand_state` | 30 | `[left_hand(15), right_hand(15)]`. Each hand = 5 fingertip `xyz` points, ordered thumb, index, middle, ring, pinky, **world frame**. |
-| `48:66` | `wrist_action` | 18 | Next-frame `wrist_state`, same layout. |
-| `66:96` | `hand_action` | 30 | Next-frame `hand_state`, same layout. |
+| `48:66` | `wrist_action` | 18 | Target wrist poses, with the same layout and world frame as `wrist_state`. |
+| `66:96` | `hand_action` | 30 | Target fingertip positions, with the same layout and world frame as `hand_state`. |
 | `96:112` | `extrinsic` | 16 | Head camera. Row-major flattened 4×4 homogeneous **world→camera** matrix. |
 | `112:116` | `intrinsic` | 4 | Head camera. `[fx, fy, cx, cy]`. |
 | `116:132` | `chest_extrinsic` | 16 | Chest camera, dual-camera data only. **World→camera** matrix, row-major flattened 4×4. |
 | `132:136` | `chest_intrinsic` | 4 | Chest camera, dual-camera data only. `[fx, fy, cx, cy]`. |
+
+Robot samples use recorded commands; EgoSmith human samples use reconstructed
+next-frame hand poses as targets.
 
 ### `meta.json` fields
 
 | Field | Required | Content |
 |---|---|---|
 | `instruction` | **yes** | Task text: a `str`, or a `list[str]` of candidates. |
-| `instruction_num` | **yes** | Number of candidate instructions; must be `> 0`. |
+| `instruction_num` | **yes** | Number of candidate instructions; `1` for a string, or the length of the nonempty candidate list. |
 | `episode_index` | **yes** | Episode id. Frames sharing the same `dataset_name` and `episode_index` must be **contiguous and in temporal order** within a shard. |
 | `dataset_name` | optional, default `""` | Dataset name; combined with `episode_index` to key episodes. |
 | `cameras` | optional, default `["head"]` | Cameras present in this sample, in the same order as the per-camera blocks in `lowdim.npy`. **`cameras[0]` must be `"head"`.** |
 | `presence` | deprecated | Hand-presence flag for human data: `0` none, `1` left, `2` right, `3` both. |
-| `high_quality` | optional, default `1` | DAgger flag: `1` = human-intervention frame, `0` = robot-execution frame. |
+| `high_quality` | optional, default `1` | Per-frame DAgger flag: `1` = human-intervention frame, `0` = model-execution frame. |
 
 ---
 
@@ -88,7 +91,7 @@ the `webdataset` library's `ShardWriter`.
 
 **Validation skips and logs bad samples**
 
-The loader runs per-sample sanity checks in [sanity_checks.py](../src/dataset/sanity_checks.py) and **drops** failing frames, logging each skip to stdout under the `DATA_SKIP` tag. If valid-sample throughput is unexpectedly low, check the logs. Thresholds are configurable under `data.sanity_checks` in [unified_wds.yaml](../src/config/data/unified_wds.yaml).
+The loader runs sanity checks on each training window in [sanity_checks.py](../src/dataset/sanity_checks.py) and **drops** failing windows, logging each skip to stdout under the `DATA_SKIP` tag. If valid-sample throughput is unexpectedly low, check the logs. Thresholds are configurable under `data.sanity_checks` in [unified_wds.yaml](../src/config/data/unified_wds.yaml).
 
 **Adding a chest camera**
 
@@ -97,7 +100,7 @@ Add a `chest_image.jpg` member; append the chest
 
 **Changing the image resolution**
 
-To change the image resolution, set `data.target_image_size` in [unified_wds.yaml](../src/config/data/unified_wds.yaml) to the desired `[H, W]`, or `null` to keep the original resolution. A higher resolution means more vision patches per image, so it raises the per-sample token count just as an extra camera would. After changing it, adjust `data.max_vlm_tokens` and `dataloader.loader.batch_size` to match.
+To change the image resolution, set `data.target_image_size` in [unified_wds.yaml](../src/config/data/unified_wds.yaml) to the desired `[H, W]`. Future-frame supervision requires a fixed size. Setting this field to `null` is not supported by the default configuration: `data.target_pixels` and the processor's pixel bounds also depend on that size. A higher resolution means more vision patches per image, so it raises the per-sample token count just as an extra camera would. After changing it, adjust `data.max_vlm_tokens` and `dataloader.loader.batch_size` to match.
 
 ---
 
@@ -112,19 +115,25 @@ python scripts/lerobot_to_wds.py --root /path/to/EgoSteer-RealWorld --out /path/
 python scripts/verify_wds.py    --wds  /path/to/EgoSteer-RealWorld.wds --root /path/to/EgoSteer-RealWorld
 ```
 
-- Episodes are shuffled with `--seed` (default 0) and packed **whole** into shards of about
-  `--frames-per-shard` frames (default 1000, i.e. 2–4 episodes per shard), so every shard mixes tasks and
-  no episode is split. `<out>/<split>/index.json` records which episodes went into each shard.
-- Splits follow the dataset's `split` column: `<out>/train/` and `<out>/val/`.
-- Each frame gets `image.jpg`, `chest_image.jpg`, `lowdim.npy` (136 dims, head + chest; the extrinsic blocks
-  are the dataset's frame-level `observation.camera.{head,chest}_world2cam`) and `meta.json` with all of the
-  episode's instructions; depth is not exported.
-- Re-running skips shards that already exist, so an interrupted run resumes where it stopped (the script refuses
-  to resume into an output directory that was written with different arguments). To spread one conversion over
-  several machines that share the output directory, give each machine a different `--part k/N`. `--workers`
-  defaults to the machine's CPU count.
-- `verify_wds.py` checks the contract above (member order, per-episode contiguity, no episode in two
-  shards, `instruction_num`, lowdim shape) and, with `--root`, frame counts against the LeRobot dataset.
+- Episodes are shuffled with `--seed` (default 0) and packed **whole** into shards targeting
+  `--frames-per-shard` frames (default 1000); no episode is split.
+  `<out>/<split>/index.json` records the conversion settings and shard assignments.
+- Splits follow the episode metadata's `split` column; if absent, all episodes go to `train`.
+- Each frame gets `image.jpg`, `lowdim.npy`, and `meta.json` with all of the episode's instructions.
+  Head + chest data additionally gets `chest_image.jpg` and uses 136D lowdim; head-only data uses 116D.
+  Extrinsics come from the dataset's frame-level `observation.camera.{head,chest}_world2cam`;
+  depth is not exported. Labels-only human releases need their head videos re-attached before conversion.
+- If present, `high_quality` is copied into each frame's `meta.json`.
+  Missing flags default to `1` in the loader.
+- Re-running skips existing shards. Keep the source dataset and conversion settings unchanged;
+  `--workers` and `--part` may change. To preserve DAgger flags when upgrading from an older
+  converter, regenerate the shards in a new output directory.
+  For multi-machine conversion, share the output directory and assign each machine a different
+  `--part k/N`. `--workers` defaults to the machine's CPU count.
+- `verify_wds.py` checks converter-produced shards (member order, per-episode contiguity,
+  no `(dataset_name, episode_index)` in two shards, `instruction_num`, DAgger flag values, and lowdim shape)
+  and, with `--root`, frame counts against the LeRobot dataset. It expects converter-style frame keys
+  and one camera/member layout per shard; custom producers may use other key formats accepted by the loader.
 
 Then point `wds_base_dir` in [vla_wds.yaml](../src/config/dataset_paths/vla_wds.yaml) at `<out>` and
 compute the normalizer as below.
@@ -199,7 +208,7 @@ These three `*_ratings` are per-turn quality scores carried over from [FineVisio
        shard_urls: example_data/vlm/val/shard-*.tar
    ```
 
-2. In [unified_wds.yaml](../src/config/data/unified_wds.yaml), set `dataset.vlm_dataset` to a `VLMWdsDataset` block and lower `vla_ratio` below `1`. Then `round(batch_size * vla_ratio)` samples per batch are VLA and the rest are VLM:
+2. In [unified_wds.yaml](../src/config/data/unified_wds.yaml), set `dataset.vlm_dataset` to a `VLMWdsDataset` block and lower `vla_ratio` below `1`. Then `ceil(batch_size * vla_ratio)` samples per batch are VLA and the rest are VLM. For example, batch size `18` and ratio `0.8` give `15` VLA and `3` VLM samples:
 
    ```yaml
    dataset:

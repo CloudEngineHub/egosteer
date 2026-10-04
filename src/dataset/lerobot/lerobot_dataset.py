@@ -35,9 +35,9 @@ from ..unified_vla_collator import UnifiedVLACollator
 
 
 CALIBRATION_SHAPES = {
-    **{f"calibration.{cam}_intrinsics": (3, 3) for cam in ("head", "chest")},
+    **{f"calibration/{cam}_intrinsics": (3, 3) for cam in ("head", "chest")},
     **{
-        f"calibration.{cam}_cam_to_{side}_base": (4, 4)
+        f"calibration/{cam}_cam_to_{side}_base": (4, 4)
         for cam in ("head", "chest")
         for side in ("left", "right")
     },
@@ -75,7 +75,7 @@ def camera_parameters(reader, e, indices, cameras):
     positions = order[np.searchsorted(frames[order], indices)]
     result = {}
     for camera, column in zip(cameras, columns):
-        intrinsic = reader.episodes[e][f"calibration.{camera}_intrinsics"]
+        intrinsic = reader.episodes[e][f"calibration/{camera}_intrinsics"]
         poses = np.stack(table[column].to_numpy()[positions]).astype(np.float32, copy=False)
         result[camera] = intrinsic[[0, 1, 0, 1], [0, 1, 2, 2]].astype(np.float32), poses
     return result

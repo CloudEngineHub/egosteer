@@ -38,7 +38,7 @@ its episode metadata. A file may contain multiple episodes.
 | Field | Type / shape | Content |
 |---|---|---|
 | `observation.state` | `float32 [74]` | Measured state, using the layout below. |
-| `action` | `float32 [74]` | Recorded command in the same layout; used directly as the training target. |
+| `action` | `float32 [74]` | Target in the same layout: a recorded command for robot data, or a reconstructed next-frame hand pose for EgoSmith human data. |
 | `timestamp` | `float32` | Episode-relative time in seconds: `frame_index / fps`. |
 | `frame_index` | `int64` | Frame number within the episode, starting at 0. |
 | `episode_index` | `int64` | Episode identifier. |
@@ -83,8 +83,8 @@ Matrices are stored as row-major flattened arrays.
 | `instructions` | `list[str]` | Nonempty list of candidate instructions. Training samples one uniformly; validation uses the first. |
 | `dataset_from_index` / `dataset_to_index` | `int64` | Global frame interval `[from, to)`; its length equals `length`. |
 | `data/chunk_index` / `data/file_index` | `int64` | Location of the episode's Parquet frame rows. |
-| `calibration.head_intrinsics` / `calibration.chest_intrinsics` | `float64 [9]` | Camera intrinsic matrix, flattened 3×3. |
-| `calibration.{camera}_cam_to_{side}_base` | `float64 [16]` | Camera-to-arm-base transform for each combination of `camera` = `head`, `chest` and `side` = `left`, `right`. |
+| `calibration/head_intrinsics` / `calibration/chest_intrinsics` | `float64 [9]` | Camera intrinsic matrix, flattened 3×3. |
+| `calibration/{camera}_cam_to_{side}_base` | `float64 [16]` | Camera-to-arm-base transform for each combination of `camera` = `head`, `chest` and `side` = `left`, `right`. |
 | `videos/{feature}/chunk_index` / `file_index` | `int64` | Video location for each camera feature listed below. |
 | `videos/{feature}/from_timestamp` / `to_timestamp` | `float64` | Episode interval in that video file, in seconds. Its duration equals `length / fps`. |
 

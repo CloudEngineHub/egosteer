@@ -395,7 +395,7 @@ starting the server.
 Offline evaluation is configured by [eval_config.yaml](src/config/eval_config.yaml).
 
 ```bash
-bash scripts/run_eval.sh <checkpoint_path> <train_config_path>
+bash scripts/run_eval.sh <checkpoint_path> <train_config_path> normalizer_path=/path/to/normalizer.pkl
 ```
 
 Example:
@@ -403,10 +403,13 @@ Example:
 ```bash
 bash scripts/run_eval.sh \
     outputs/<your-run>/checkpoints/update_step=10000 \
-    outputs/<your-run>/.hydra/config.yaml
+    outputs/<your-run>/.hydra/config.yaml \
+    normalizer_path=/path/to/the/normalizer-used-for-training.pkl
 ```
 
 The second argument is the `config.yaml` saved by Hydra in the same training output directory as the checkpoint. For example, a checkpoint under `outputs/<your-run>/checkpoints/update_step=10000/` should normally use `outputs/<your-run>/.hydra/config.yaml`.
+
+Use the training run's `training.normalizer_path`; evaluation does not inherit it automatically.
 
 Evaluation computes action metrics and can generate a self-contained HTML report with visual overlays.
 

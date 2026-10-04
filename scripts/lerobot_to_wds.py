@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert an EgoSteer LeRobot v3 dataset into WebDataset shards for training.
 
-Output layout (contract in data/data.md):
+Output layout (contract in data/wds.md):
 
     <out>/train/shard-000000.tar ...      <out>/val/shard-000000.tar ...
 
@@ -15,8 +15,8 @@ Every frame is one sample with four members:
 Datasets without a chest camera (the EgoSteer-Egocentric human datasets, after their head video has been re-attached)
 get the head-only form of the contract: image.jpg only, lowdim.npy with 116 values, cameras = ["head"].
 
-Episodes are shuffled with a fixed seed and packed *whole* into shards, so each
-shard mixes tasks and no episode is ever split across two shards. The loader
+Episodes are shuffled with a fixed seed and packed *whole* into shards to mix
+tasks where available; no episode is ever split across two shards. The loader
 relies on that: it cuts temporal windows at episode boundaries inside a shard.
 
 Usage:
@@ -71,24 +71,39 @@ def cameras(info, ep):
 
 
 def read_lowdim_rows(root, info, ep, cams=("head", "chest")):
-    """(state, action, <world2cam of each camera in cams>) float32 arrays for one episode.
+    """Return (motion_arrays, high_quality) for one episode.
+
+    motion_arrays contains state, action and each camera's world2cam arrays.
+    high_quality is an optional per-frame 0/1 array; None means the column is absent.
 
     The dataset writes one parquet row group per episode, so only that row
     group is read instead of the whole file.
     """
     path = root / info["data_path"].format(chunk_index=ep["data/chunk_index"], file_index=ep["data/file_index"])
     pf = pq.ParquetFile(path)
+    wanted = ["episode_index", "observation.state", "action", *(WORLD2CAM[c] for c in cams)]
+    if "high_quality" in pf.schema_arrow.names:
+        wanted.append("high_quality")
     for rg in range(pf.num_row_groups):
         first = pf.read_row_group(rg, columns=["episode_index"]).column(0)[0].as_py()
         if first == ep["episode_index"]:
-            table = pf.read_row_group(rg, columns=["episode_index", "observation.state", "action", *(WORLD2CAM[c] for c in cams)])
+            table = pf.read_row_group(rg, columns=wanted)
             break
     else:
         raise KeyError(f"episode {ep['episode_index']} not found in {path}")
     assert set(table.column("episode_index").to_pylist()) == {ep["episode_index"]}, "row group holds more than one episode"
     columns = [np.asarray(table.column(c).to_pylist(), dtype=np.float32) for c in ("observation.state", "action", *(WORLD2CAM[c] for c in cams))]
     assert len(columns[0]) == ep["length"], f"episode {ep['episode_index']}: {len(columns[0])} rows, expected {ep['length']}"
-    return columns
+    high_quality = None
+    if "high_quality" in wanted:
+        flags = []
+        for frame, raw in enumerate(table.column("high_quality").to_pylist()):
+            value = np.asarray(raw)
+            if value.ndim > 1 or value.size != 1 or value.item() not in (0, 1):
+                raise ValueError(f"episode {ep['episode_index']}, frame {frame}: high_quality must contain one 0/1 or boolean value")
+            flags.append(int(value.item()))
+        high_quality = np.asarray(flags, dtype=np.int8)
+    return columns, high_quality
 
 
 def decode_video(root, info, ep, cam):
@@ -121,7 +136,8 @@ def to_lowdim(state, action, head_world2cam, chest_world2cam, head_K, chest_K=No
     """Map one frame of the 74-dim LeRobot state/action to the lowdim vector: 136 dims with a chest camera, 116 without.
 
     LeRobot layout: [arm_L(7) arm_R(7) hand_L(6) hand_R(6) wrist_L(9) wrist_R(9) tips_L(15) tips_R(15)]
-    where wrist = [xyz(3) rot6d(6)] in the head-camera (world) frame.
+    where wrist = [xyz(3) rot6d(6)] in the dataset's world frame. The real-robot
+    release uses the head camera as world; EgoSmith data may use a SLAM world frame.
     lowdim layout: wrist_state(18) hand_state(30) wrist_action(18) hand_action(30)
                    head_extrinsic(16) head_intrinsic(4) [chest_extrinsic(16) chest_intrinsic(4)]
     The extrinsics are the frame's world2cam matrices (4x4, row-major) as stored in the dataset.
@@ -185,7 +201,8 @@ def write_shard(job):
 
         for ep in episodes:
             cams = cameras(info, ep)
-            state, action, *world2cam = read_lowdim_rows(root, info, ep, cams)
+            motion, high_quality = read_lowdim_rows(root, info, ep, cams)
+            state, action, *world2cam = motion
             has_chest = "chest" in cams
             meta = {"instruction": list(ep["instructions"]), "instruction_num": len(ep["instructions"]),
                     "episode_index": ep["episode_index"], "dataset_name": ep["tasks"][0], "cameras": cams}
@@ -199,7 +216,10 @@ def write_shard(job):
                     add(key + ".chest_image.jpg", jpeg_bytes(images[1], quality))
                 add(key + ".lowdim.npy", npy_bytes(to_lowdim(state[t], action[t], world2cam[0][t], world2cam[1][t] if has_chest else None,
                                                               ep["calibration/head_intrinsics"], ep.get("calibration/chest_intrinsics") if has_chest else None)))
-                add(key + ".meta.json", meta_json)
+                frame_meta_json = meta_json
+                if high_quality is not None:
+                    frame_meta_json = json.dumps({**meta, "high_quality": int(high_quality[t])}, ensure_ascii=False).encode("utf-8")
+                add(key + ".meta.json", frame_meta_json)
                 decoded += 1
             assert decoded == ep["length"], f"episode {ep['episode_index']}: decoded {decoded} frames, expected {ep['length']}"
             n_frames += decoded
@@ -227,11 +247,13 @@ def main():
     jobs = []
     for split, shards in plan.items():
         (args.out / split).mkdir(parents=True, exist_ok=True)
-        index = {"seed": args.seed, "frames_per_shard": args.frames_per_shard,
+        index = {"format_version": 2,
+                 "seed": args.seed, "frames_per_shard": args.frames_per_shard,
+                 "jpeg_quality": args.jpeg_quality,
                  "shards": {f"shard-{i:06d}.tar": [ep["episode_index"] for ep in eps] for i, eps in enumerate(shards)}}
         index_path = args.out / split / "index.json"          # shard -> episodes, for reproducibility
         if index_path.exists():                               # resuming: the existing shards must come from the same plan
-            assert json.loads(index_path.read_text()) == index, f"{index_path} was written with different arguments; use a new --out"
+            assert json.loads(index_path.read_text()) == index, f"{index_path} was written with a different conversion format or arguments; use a new --out"
         else:
             index_path.write_text(json.dumps(index, indent=1))
         for i, (name, eps) in enumerate(zip(index["shards"], shards)):

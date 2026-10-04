@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that a WebDataset directory satisfies the loader contract in data/data.md.
+"""Check converter-produced WebDataset shards against data/wds.md.
 
 For every shard: each frame has image.jpg, [chest_image.jpg], lowdim.npy, meta.json in that order (depth members
 optional, see data/wds.md); frames of an episode are contiguous and numbered 0..N-1; meta fields are valid;
@@ -56,18 +56,26 @@ def _check_shard(path):
             meta = json.load(tar.extractfile(member))
             episode, frame = int(key.split("_")[1]), int(key.split("_")[3])
             assert meta["episode_index"] == episode, f"{path}:{key} meta episode_index {meta['episode_index']}"
-            assert meta["instruction_num"] == len(meta["instruction"]) > 0, f"{path}:{key} instruction_num mismatch"
-            assert all(isinstance(s, str) and s.strip() for s in meta["instruction"]), f"{path}:{key} empty instruction"
+            instructions = meta["instruction"]
+            if isinstance(instructions, str):
+                instructions = [instructions]
+            assert isinstance(instructions, list), f"{path}:{key} instruction must be a string or list"
+            assert meta["instruction_num"] == len(instructions) > 0, f"{path}:{key} instruction_num mismatch"
+            assert all(isinstance(s, str) and s.strip() for s in instructions), f"{path}:{key} empty instruction"
+            if "high_quality" in meta:
+                flag = meta["high_quality"]
+                assert isinstance(flag, (bool, int, float)) and flag in (0, 1), f"{path}:{key} high_quality must be a scalar 0/1 or boolean"
             cams = meta.get("cameras", ["head"])
             assert cams[:1] == ["head"] and all(c in CAMERA_MEMBER for c in cams), f"{path}:{key} cameras {cams}"
             assert [c for c in CAMERA_MEMBER if CAMERA_MEMBER[c] in present] == cams, f"{path}:{key} cameras {cams} but members {present}"
             assert lowdim_len == 96 + 20 * len(cams), f"{path}:{key} lowdim has {lowdim_len} values, expected {96 + 20 * len(cams)} for cameras {cams}"
-            if episode != current:
-                assert episode not in episodes, f"{path}: episode {episode} is not contiguous"
-                current, expected_frame = episode, 0
+            episode_key = (meta.get("dataset_name", ""), episode)
+            if episode_key != current:
+                assert episode_key not in episodes, f"{path}: episode {episode_key} is not contiguous"
+                current, expected_frame = episode_key, 0
             assert frame == expected_frame, f"{path}:{key} expected frame {expected_frame}"
             expected_frame += 1
-            episodes[episode] = expected_frame
+            episodes[episode_key] = expected_frame
     assert not suffixes, f"{path}: trailing members {suffixes}"
     return episodes
 
@@ -92,7 +100,8 @@ def main():
                 bad.append(f"{split}/{name}")
                 print(f"BAD {error}", flush=True)
                 continue
-            if (split, name) in index and set(episodes) != index[(split, name)]:
+            episode_ids = {ep[1] for ep in episodes}
+            if (split, name) in index and episode_ids != index[(split, name)]:
                 bad.append(f"{split}/{name}")
                 print(f"BAD {split}/{name}: holds episodes {sorted(episodes)}, index.json says {sorted(index[(split, name)])}", flush=True)
                 continue
@@ -111,12 +120,15 @@ def main():
         rows = []
         for p in sorted((args.root / "meta" / "episodes").rglob("*.parquet")):
             present = pq.read_schema(p).names
-            rows += pq.read_table(p, columns=[c for c in ("episode_index", "length", "split") if c in present]).to_pylist()
+            rows += pq.read_table(p, columns=[c for c in ("episode_index", "length", "split", "tasks") if c in present]).to_pylist()
         for r in rows:
             r.setdefault("split", "train")           # no split column: everything is train
-        mismatch = [r for r in rows if per_split.get(r["split"], {}).get(r["episode_index"]) != r["length"]]
+        def episode_key(row):
+            return ((row.get("tasks") or [""])[0], row["episode_index"])
+
+        mismatch = [r for r in rows if per_split.get(r["split"], {}).get(episode_key(r)) != r["length"]]
         for r in mismatch:
-            print(f"BAD episode {r['episode_index']} ({r['split']}): wds {per_split.get(r['split'], {}).get(r['episode_index'])} frames, lerobot {r['length']}")
+            print(f"BAD episode {episode_key(r)} ({r['split']}): wds {per_split.get(r['split'], {}).get(episode_key(r))} frames, lerobot {r['length']}")
         if mismatch or len(rows) != len(seen):
             raise SystemExit(f"{len(mismatch)} episode(s) missing or wrong length; {len(rows)} episodes in lerobot, {len(seen)} in wds")
         print(f"matches {args.root}: {len(rows)} episodes, {sum(r['length'] for r in rows)} frames")

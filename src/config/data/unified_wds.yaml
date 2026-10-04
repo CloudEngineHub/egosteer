@@ -4,7 +4,8 @@ data:
   # Target image size [H, W] for resizing all RGB images (VLA + VLM) before HF processor.
   # When world model (future frame prediction) is enabled, this MUST be set
   # to ensure temporal attention patches align across frames.
-  # Set to null to skip resizing (original resolution preserved).
+  # The default target_pixels/processor bounds below also require a fixed size.
+  # Advanced no-resize configs must disable future-frame supervision and override those bounds.
   target_image_size: [384, 384]
   # H * W; used as min_pixels / max_pixels below as a smart_resize fail-safe.
   target_pixels: ${eval:'${data.target_image_size}[0] * ${data.target_image_size}[1]'}
@@ -79,7 +80,7 @@ dataset:
     # tar layer (also disables augment_depth downstream).
     load_depth: ${training.train_depth}
     # Decode the chest camera when shards declare it (dual-camera real-robot
-    # data); see data.md for the dual-camera sample layout.
+    # data); see data/wds.md for the dual-camera sample layout.
     load_chest: false
     # Per-sample training-time view dropout for dual-camera samples.
     # Validation and samples without chest video always keep the available views.
